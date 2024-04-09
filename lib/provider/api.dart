@@ -16,11 +16,8 @@ class Api with ChangeNotifier {
 
   Api(this.token, this.data);
 
-  Future<void> postData(String id) async {
+  Future<void> postData(String id, String latitude, String longitude) async {
     try {
-      final now = new DateTime.now();
-      String formatter = DateFormat('dd-MM-yyyy').format(now);
-
       var _headers = {
         HttpHeaders.authorizationHeader: token,
         HttpHeaders.contentTypeHeader: 'application/vnd.api+json'
@@ -32,7 +29,8 @@ class Api with ChangeNotifier {
       final response = await http.post(
         url,
         headers: _headers,
-        body: json.encode({'rfid': id, 'date': formatter}),
+        body: json.encode(
+            {'qrcode': id, 'latitude': latitude, 'longitude': longitude}),
       );
       final extractedData =
           json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;

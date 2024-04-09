@@ -1,10 +1,11 @@
 import 'dart:developer';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+// import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_code_scanner/qr_code_scanner.dart';
 import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../provider/api.dart';
 import '../model/data.dart';
@@ -47,6 +48,43 @@ class _QrCodeState extends State<QrCode> {
     );
   }
 
+  Future<Position> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Test if location services are enabled.
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      // Location services are not enabled don't continue
+      // accessing the position and request users of the
+      // App to enable the location services.
+      return Future.error('Location services are disabled.');
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        // Permissions are denied, next time you could try
+        // requesting permissions again (this is also where
+        // Android's shouldShowRequestPermissionRationale
+        // returned true. According to Android guidelines
+        // your App should show an explanatory UI now.
+        return Future.error('Location permissions are denied');
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      // Permissions are denied forever, handle appropriately.
+      return Future.error(
+          'Location permissions are permanently denied, we cannot request permissions.');
+    }
+
+    // When we reach here, permissions are granted and we can
+    // continue accessing the position of the device.
+    return await Geolocator.getCurrentPosition();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -81,18 +119,37 @@ class _QrCodeState extends State<QrCode> {
   }
 
   void _onQRViewCreated(QRViewController controller) {
+    Position? _currentPosition;
+    var lastQrCodeReadDate = DateTime.now();
     setState(() {
       this.controller = controller;
     });
+
     controller.scannedDataStream.listen((scanData) {
+      final dateNow = DateTime.now();
+      if (dateNow.difference(lastQrCodeReadDate).inSeconds < 3) return;
+
       setState(() async {
+        Future<Position> gps = _determinePosition();
+        await gps.then((Position position) {
+          setState(() {
+            _currentPosition = position;
+            inspect(_currentPosition);
+          });
+        }).catchError((e) {
+          debugPrint(e);
+        });
+
         await controller.pauseCamera();
         result = scanData;
         await Provider.of<Api>(context, listen: false)
-            .postData(result!.code.toString())
+            .postData(
+                result!.code.toString(),
+                _currentPosition!.latitude.toString(),
+                _currentPosition!.longitude.toString())
             .then((value) async {
           _showDataInfo(context, Provider.of<Api>(context, listen: false).data);
-          Future.delayed(const Duration(seconds: 5), () async {
+          Future.delayed(const Duration(seconds: 3), () async {
             Navigator.of(context).pop();
           });
         }).onError((error, stackTrace) {
@@ -100,6 +157,8 @@ class _QrCodeState extends State<QrCode> {
         });
         await controller.resumeCamera();
       });
+
+      lastQrCodeReadDate = DateTime.now();
     });
   }
 
